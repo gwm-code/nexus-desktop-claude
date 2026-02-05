@@ -1,0 +1,9 @@
+[Desktop Entry]
+Categories=Development;
+Comment=Nexus Desktop App
+Exec=nexus-desktop
+StartupWMClass=nexus-desktop
+Icon=nexus-desktop
+Name=Nexus
+Terminal=false
+Type=Application
