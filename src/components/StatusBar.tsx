@@ -73,7 +73,11 @@ const ProgressBar: React.FC<{ value: number; max?: number; color?: string }> = (
   );
 };
 
-export const StatusBar: React.FC = () => {
+interface StatusBarProps {
+  onOpenSettings: () => void;
+}
+
+export const StatusBar: React.FC<StatusBarProps> = ({ onOpenSettings }) => {
   const [showExpanded, setShowExpanded] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
 
@@ -294,7 +298,11 @@ export const StatusBar: React.FC = () => {
                 <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
               )}
             </button>
-            <button className="p-1 hover:bg-zinc-800 rounded transition-colors" title="Settings">
+            <button 
+              onClick={onOpenSettings}
+              className="p-1 hover:bg-zinc-800 rounded transition-colors" 
+              title="Settings"
+            >
               <Settings className="w-3.5 h-3.5 text-zinc-500" />
             </button>
           </div>

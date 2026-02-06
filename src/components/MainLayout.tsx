@@ -4,6 +4,7 @@ import { ChatPanel } from './ChatPanel';
 import { ContextPanel } from './ContextPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { StatusBar } from './StatusBar';
+import { SettingsModal } from './SettingsModal';
 import { useNexusStore } from '../store/useNexusStore';
 
 export const MainLayout: React.FC = () => {
@@ -16,8 +17,7 @@ export const MainLayout: React.FC = () => {
   const [showTerminal, setShowTerminal] = useState(true);
   const [showSwarm, setShowSwarm] = useState(true);
   const [showContext, setShowContext] = useState(true);
-
-
+  const [showSettings, setShowSettings] = useState(false);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -71,7 +71,7 @@ export const MainLayout: React.FC = () => {
   }, []);
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div className="flex h-screen w-full overflow-hidden relative">
       {/* Swarm Panel (Left) */}
       {showSwarm && (
         <>
@@ -150,8 +150,13 @@ export const MainLayout: React.FC = () => {
         )}
       </div>
 
+      {/* Settings Modal Overlay */}
+      {showSettings && (
+        <SettingsModal onClose={() => setShowSettings(false)} />
+      )}
+
       {/* Status Bar */}
-      <StatusBar />
+      <StatusBar onOpenSettings={() => setShowSettings(true)} />
     </div>
   );
 };
