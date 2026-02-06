@@ -17,7 +17,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { useNexusStore, useContext, useMemoryStats, useIsConnected } from '../store/useNexusStore';
-import type { FileNode, GitStatus } from '../types';
+import type { GitStatus } from '../types';
 
 const FileIcon: React.FC<{ type: string }> = ({ type }) => {
   switch (type) {
