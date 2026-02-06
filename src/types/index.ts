@@ -404,6 +404,15 @@ export interface SearchResult {
 // User Settings Types
 // ============================================================================
 
+export interface SSHSettings {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  privateKey?: string;
+  publicKey?: string;
+}
+
 export interface UserSettings {
   theme: 'dark' | 'light' | 'system';
   fontSize: number;
@@ -418,6 +427,7 @@ export interface UserSettings {
   preferredModel?: string;
   apiKeys?: Record<string, string>;
   customShortcuts?: Record<string, string>;
+  sshSettings?: SSHSettings;
   editorSettings?: {
     tabSize: number;
     useSpaces: boolean;
