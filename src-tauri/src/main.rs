@@ -30,9 +30,6 @@ struct NexusStatus {
     model: Option<String>,
 }
 
-// ... (Existing types: Agent, SwarmTask, Subtask, ChatMessage, FileNode, ProjectContext, GitStatus, MemoryStats, McpServer, McpTool, WatcherStatus, TerminalOutput, ProviderConfig)
-// Re-using simplified versions for brevity in refactor logic
-
 struct NexusState {
     ssh_session: Mutex<Option<Session>>,
     current_project: Mutex<Option<PathBuf>>,
@@ -71,9 +68,22 @@ async fn connect_remote(
     sess.handshake().map_err(|e| e.to_string())?;
 
     if let Some(key_content) = private_key {
-        let pub_key_ref = public_key.as_deref();
-        sess.userauth_pubkey_memory(&username, pub_key_ref, &key_content, None)
-            .map_err(|e| format!("Key authentication failed: {}", e))?;
+        let trimmed_key = key_content.trim();
+        
+        // Auto-heal missing headers
+        let final_key = if !trimmed_key.contains("BEGIN") {
+            format!(
+                "-----BEGIN OPENSSH PRIVATE KEY-----\n{}\n-----END OPENSSH PRIVATE KEY-----",
+                trimmed_key
+            )
+        } else {
+            trimmed_key.to_string()
+        };
+
+        let pub_key_ref = public_key.as_deref().map(|s| s.trim());
+        
+        sess.userauth_pubkey_memory(&username, pub_key_ref, &final_key, None)
+            .map_err(|e| format!("Key authentication failed: [Session({})] {}", e.code(), e.message()))?;
     } else if let Some(pw) = password {
         sess.userauth_password(&username, &pw)
             .map_err(|e| format!("Password failed: {}", e))?;
@@ -117,7 +127,6 @@ async fn execute_nexus_bridge(args: &[&str], state: &NexusState) -> Result<Strin
 
 #[tauri::command]
 async fn get_nexus_status(state: State<'_, NexusState>) -> Result<NexusStatus, String> {
-    let connected = state.ssh_session.lock().await.is_some();
     let version = execute_nexus_bridge(&["--version"], &state).await.unwrap_or_else(|_| "Unknown".into());
     
     Ok(NexusStatus {
