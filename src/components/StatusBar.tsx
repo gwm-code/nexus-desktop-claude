@@ -26,14 +26,53 @@ const PulsingDot: React.FC<{ color: string }> = ({ color }) => (
   </span>
 );
 
-const StatusIndicator: React.FC<{ status: ConnectionStatus }> = ({ status }) => {
+const StatusIndicator: React.FC<{ status: ConnectionStatus; nexusStatus?: any }> = ({ status, nexusStatus }) => {
+  const getConnectionDetails = () => {
+    if (!nexusStatus) return null;
+
+    const mode = nexusStatus.connectionMode || 'unknown';
+    const latency = nexusStatus.sshLatency;
+    const remoteInstalled = nexusStatus.remoteNexusInstalled;
+
+    let modeLabel = '';
+    let modeColor = '';
+
+    if (mode === 'ssh') {
+      modeLabel = 'SSH';
+      modeColor = 'text-blue-400';
+
+      if (remoteInstalled === false) {
+        modeLabel = 'SSH→Local'; // Fallback to local
+        modeColor = 'text-yellow-400';
+      }
+    } else if (mode === 'local') {
+      modeLabel = 'Local';
+      modeColor = 'text-emerald-400';
+    }
+
+    const latencyText = latency !== undefined ? `, ${latency}ms` : '';
+    const latencyColor = latency > 500 ? 'text-orange-400' : latency > 200 ? 'text-yellow-400' : '';
+
+    return { modeLabel, modeColor, latencyText, latencyColor };
+  };
+
+  const details = getConnectionDetails();
+
   switch (status) {
     case 'connected':
       return (
         <div className="flex items-center gap-2">
           <PulsingDot color="bg-green-500" />
           <Wifi className="w-3.5 h-3.5 text-green-400" />
-          <span className="text-xs text-green-400">Connected</span>
+          <span className="text-xs text-green-400">
+            Connected
+            {details && details.modeLabel && (
+              <span className={`ml-1 ${details.modeColor}`}>
+                ({details.modeLabel}
+                <span className={details.latencyColor}>{details.latencyText}</span>)
+              </span>
+            )}
+          </span>
         </div>
       );
     case 'connecting':
@@ -118,7 +157,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({ onOpenSettings }) => {
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400">Status</span>
-                  <StatusIndicator status={backend.status} />
+                  <StatusIndicator status={backend.status} nexusStatus={nexusStatus} />
                 </div>
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-zinc-400">CLI</span>

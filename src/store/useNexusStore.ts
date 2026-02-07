@@ -51,9 +51,20 @@ interface NexusState {
   // Toasts
   toasts: Toast[];
 
+  // Logs
+  logs: Array<{
+    timestamp: string;
+    level: 'debug' | 'info' | 'warn' | 'error';
+    source: 'frontend' | 'backend' | 'cli';
+    message: string;
+    details?: string;
+  }>;
+
   // Actions
   addToast: (toast: Omit<Toast, 'id'>) => void;
   removeToast: (id: string) => void;
+  addLog: (level: 'debug' | 'info' | 'warn' | 'error', source: 'frontend' | 'backend' | 'cli', message: string, details?: string) => void;
+  clearLogs: () => void;
   setBackendStatus: (status: ConnectionStatus, error?: string | null) => void;
   setNexusStatus: (status: NexusStatus) => void;
   setCurrentProject: (path: string | null) => void;
@@ -161,6 +172,9 @@ export const useNexusStore = create<NexusState>()(
       settings: defaultSettings,
       toasts: [],
 
+      // Logs
+      logs: [],
+
       // Provider/Model State
       availableProviders: [],
       availableModels: [],
@@ -175,6 +189,23 @@ export const useNexusStore = create<NexusState>()(
       removeToast: (id) => {
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
       },
+
+      // Log Actions
+      addLog: (level, source, message, details) => {
+        set((state) => ({
+          logs: [
+            ...state.logs.slice(-999), // Keep last 999 + new one = 1000
+            {
+              timestamp: new Date().toISOString(),
+              level,
+              source,
+              message,
+              details,
+            },
+          ],
+        }));
+      },
+      clearLogs: () => set({ logs: [] }),
 
       // Setters
       setBackendStatus: (status, error = null) => 

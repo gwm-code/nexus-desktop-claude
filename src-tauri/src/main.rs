@@ -27,6 +27,9 @@ struct NexusStatus {
     current_project: Option<String>,
     provider: Option<String>,
     model: Option<String>,
+    connection_mode: Option<String>,        // "ssh", "local", "none"
+    ssh_latency: Option<u64>,               // Ping latency in ms
+    remote_nexus_installed: Option<bool>,   // Whether CLI exists on remote
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -245,12 +248,29 @@ async fn execute_shell_bridge(command: &str, working_dir: Option<&str>, state: &
 
 #[tauri::command]
 async fn get_nexus_status(state: State<'_, NexusState>) -> Result<NexusStatus, String> {
+    // Detect connection mode
+    let ssh_session = state.ssh_session.lock().await;
+    let has_ssh = ssh_session.is_some();
+
+    // Measure SSH latency if connected
+    let ssh_latency = if has_ssh {
+        let start = std::time::Instant::now();
+        let _ = execute_nexus_bridge(&["--version"], &state).await;
+        Some(start.elapsed().as_millis() as u64)
+    } else {
+        None
+    };
+
     let raw = execute_nexus_bridge(&["--json", "info"], &state).await.unwrap_or_default();
 
     // Try to parse JSON response
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
         if json["success"].as_bool() == Some(true) {
             let data = &json["data"];
+
+            // Get actual provider/model from config
+            let (provider, model) = get_provider_and_model_from_config(&state).await;
+
             return Ok(NexusStatus {
                 daemon_running: false,
                 daemon_port: None,
@@ -259,26 +279,92 @@ async fn get_nexus_status(state: State<'_, NexusState>) -> Result<NexusStatus, S
                 nexus_installed: true,
                 current_project: state.current_project.lock().await
                     .as_ref().map(|p| p.to_string_lossy().to_string()),
-                provider: Some("Remote".into()),
-                model: Some("Kimi".into()),
+                provider,
+                model,
+                connection_mode: Some(if has_ssh { "ssh".to_string() } else { "local".to_string() }),
+                ssh_latency,
+                remote_nexus_installed: Some(true),
             });
         }
     }
 
     // Fallback: try --version
     let version = execute_nexus_bridge(&["--version"], &state).await.unwrap_or_else(|_| "Unknown".into());
+    let version_trimmed = version.trim().to_string();
+
+    // Consider installed if we got a version that looks valid
+    let is_installed = !version_trimmed.is_empty()
+        && version_trimmed != "Unknown"
+        && !version_trimmed.to_lowercase().contains("failed")
+        && !version_trimmed.to_lowercase().contains("error")
+        && !version_trimmed.to_lowercase().contains("not found");
+
+    // If SSH but no CLI found, try local fallback
+    let (connection_mode, remote_installed) = if has_ssh {
+        if is_installed {
+            ("ssh".to_string(), true)
+        } else {
+            // Try local fallback
+            let local_version = TokioCommand::new("nexus")
+                .arg("--version")
+                .output()
+                .await
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .unwrap_or_default();
+
+            if !local_version.trim().is_empty() {
+                ("local".to_string(), false)
+            } else {
+                ("none".to_string(), false)
+            }
+        }
+    } else {
+        ("local".to_string(), false)
+    };
+
+    let (provider, model) = get_provider_and_model_from_config(&state).await;
 
     Ok(NexusStatus {
         daemon_running: false,
         daemon_port: None,
-        version: version.trim().to_string(),
+        version: version_trimmed,
         platform: std::env::consts::OS.to_string(),
-        nexus_installed: !version.contains("failed"),
+        nexus_installed: is_installed,
         current_project: state.current_project.lock().await
             .as_ref().map(|p| p.to_string_lossy().to_string()),
-        provider: Some("Remote".into()),
-        model: Some("Kimi".into()),
+        provider,
+        model,
+        connection_mode: Some(connection_mode),
+        ssh_latency,
+        remote_nexus_installed: Some(remote_installed),
     })
+}
+
+async fn get_provider_and_model_from_config(state: &NexusState) -> (Option<String>, Option<String>) {
+    // Try to get config from CLI
+    let config_result = execute_nexus_bridge(&["--json", "config", "get", "all"], state).await;
+
+    if let Ok(raw) = config_result {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if json["success"].as_bool() == Some(true) {
+                let data = &json["data"];
+                let provider = data["default_provider"].as_str().map(|s| s.to_string());
+
+                // Try to get model for this provider
+                let model = if let Some(ref prov) = provider {
+                    data["providers"][prov]["default_model"].as_str().map(|s| s.to_string())
+                } else {
+                    None
+                };
+
+                return (provider, model);
+            }
+        }
+    }
+
+    // Fallback to unknown
+    (None, None)
 }
 
 #[tauri::command]
@@ -644,6 +730,306 @@ async fn get_config(state: State<'_, NexusState>) -> Result<String, String> {
     execute_nexus_bridge(&["--json", "config", "get", "all"], &state).await
 }
 
+// ============================================================================
+// OAuth Commands
+// ============================================================================
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct OAuthStatus {
+    authorized: bool,
+    provider: String,
+    expires_at: Option<String>,
+}
+
+#[tauri::command]
+async fn set_oauth_credentials(
+    provider: String,
+    client_id: String,
+    client_secret: String,
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    execute_nexus_bridge(&["--json", "config", "set-oauth", &provider, &client_id, &client_secret], &state).await?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn oauth_authorize(
+    provider: String,
+    state: State<'_, NexusState>
+) -> Result<String, String> {
+    let raw = execute_nexus_bridge(&["--json", "config", "oauth-authorize", &provider], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            if let Some(auth_url) = json["data"]["auth_url"].as_str() {
+                return Ok(auth_url.to_string());
+            }
+        } else {
+            return Err(json["error"].as_str().unwrap_or("OAuth authorization failed").to_string());
+        }
+    }
+
+    Err("Failed to parse OAuth response".to_string())
+}
+
+#[tauri::command]
+async fn oauth_check_status(
+    provider: String,
+    state: State<'_, NexusState>
+) -> Result<OAuthStatus, String> {
+    let raw = execute_nexus_bridge(&["--json", "config", "oauth-status", &provider], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            let data = &json["data"];
+            return Ok(OAuthStatus {
+                authorized: data["authorized"].as_bool().unwrap_or(false),
+                provider: data["provider"].as_str().unwrap_or(&provider).to_string(),
+                expires_at: data["expires_at"].as_str().map(|s| s.to_string()),
+            });
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to check OAuth status").to_string());
+        }
+    }
+
+    Err("Failed to parse OAuth status response".to_string())
+}
+
+// ============================================================================
+// Daemon Commands
+// ============================================================================
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DaemonStatus {
+    running: bool,
+    pid: Option<u32>,
+    interval_hours: Option<u8>,
+    last_run: Option<String>,
+    next_run: Option<String>,
+}
+
+#[tauri::command]
+async fn daemon_start(
+    interval: u8,
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    let raw = execute_nexus_bridge(&["--json", "daemon", "start", "--interval", &interval.to_string()], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to start daemon").to_string());
+        }
+    }
+
+    Err("Failed to parse daemon start response".to_string())
+}
+
+#[tauri::command]
+async fn daemon_stop(
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    let raw = execute_nexus_bridge(&["--json", "daemon", "stop"], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to stop daemon").to_string());
+        }
+    }
+
+    Err("Failed to parse daemon stop response".to_string())
+}
+
+#[tauri::command]
+async fn daemon_status(
+    state: State<'_, NexusState>
+) -> Result<DaemonStatus, String> {
+    let raw = execute_nexus_bridge(&["--json", "daemon", "status"], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            let data = &json["data"];
+            return Ok(DaemonStatus {
+                running: data["running"].as_bool().unwrap_or(false),
+                pid: data["pid"].as_u64().map(|p| p as u32),
+                interval_hours: data["interval_hours"].as_u64().map(|i| i as u8),
+                last_run: data["last_run"].as_str().map(|s| s.to_string()),
+                next_run: data["next_run"].as_str().map(|s| s.to_string()),
+            });
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to get daemon status").to_string());
+        }
+    }
+
+    Err("Failed to parse daemon status response".to_string())
+}
+
+#[tauri::command]
+async fn daemon_run_tasks(
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    let raw = execute_nexus_bridge(&["--json", "daemon", "run-tasks"], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to run daemon tasks").to_string());
+        }
+    }
+
+    Err("Failed to parse daemon run tasks response".to_string())
+}
+
+// ============================================================================
+// Hierarchy Commands
+// ============================================================================
+
+#[tauri::command]
+async fn hierarchy_get(
+    state: State<'_, NexusState>
+) -> Result<serde_json::Value, String> {
+    let raw = execute_nexus_bridge(&["--json", "hierarchy", "show"], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(json["data"].clone());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to get hierarchy").to_string());
+        }
+    }
+
+    Err("Failed to parse hierarchy response".to_string())
+}
+
+#[tauri::command]
+async fn hierarchy_set_preset(
+    preset: String,
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    let raw = execute_nexus_bridge(&["--json", "hierarchy", "set-preset", &preset], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to set preset").to_string());
+        }
+    }
+
+    Err("Failed to parse set preset response".to_string())
+}
+
+#[tauri::command]
+async fn hierarchy_set_model(
+    category: String,
+    tier: usize,
+    model_id: String,
+    state: State<'_, NexusState>
+) -> Result<(), String> {
+    let raw = execute_nexus_bridge(&[
+        "--json", "hierarchy", "set-model",
+        &category,
+        &tier.to_string(),
+        &model_id
+    ], &state).await?;
+
+    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+        if json["success"].as_bool() == Some(true) {
+            return Ok(());
+        } else {
+            return Err(json["error"].as_str().unwrap_or("Failed to set model").to_string());
+        }
+    }
+
+    Err("Failed to parse set model response".to_string())
+}
+
+#[tauri::command]
+async fn get_model_capabilities(
+    state: State<'_, NexusState>
+) -> Result<Vec<serde_json::Value>, String> {
+    // For now, return a hardcoded list since we don't have a CLI command to fetch capabilities
+    // In future, could add: nexus models list-capabilities --json
+    Ok(vec![
+        serde_json::json!({
+            "id": "claude-opus-4-6",
+            "provider": "claude",
+            "display_name": "Claude Opus 4.6",
+            "speed_score": 4,
+            "reasoning_score": 10,
+            "coding_score": 10,
+            "cost_per_1m_tokens": 15.0,
+        }),
+        serde_json::json!({
+            "id": "claude-sonnet-4-5",
+            "provider": "claude",
+            "display_name": "Claude Sonnet 4.5",
+            "speed_score": 7,
+            "reasoning_score": 9,
+            "coding_score": 9,
+            "cost_per_1m_tokens": 3.0,
+        }),
+        serde_json::json!({
+            "id": "gemini-2.0-flash-exp",
+            "provider": "google",
+            "display_name": "Gemini 2.0 Flash (Experimental)",
+            "speed_score": 10,
+            "reasoning_score": 8,
+            "coding_score": 8,
+            "cost_per_1m_tokens": 0.0,
+        }),
+        serde_json::json!({
+            "id": "gemini-1.5-pro",
+            "provider": "google",
+            "display_name": "Gemini 1.5 Pro",
+            "speed_score": 8,
+            "reasoning_score": 8,
+            "coding_score": 7,
+            "cost_per_1m_tokens": 1.25,
+        }),
+        serde_json::json!({
+            "id": "gemini-1.5-flash",
+            "provider": "google",
+            "display_name": "Gemini 1.5 Flash",
+            "speed_score": 10,
+            "reasoning_score": 6,
+            "coding_score": 6,
+            "cost_per_1m_tokens": 0.075,
+        }),
+        serde_json::json!({
+            "id": "gpt-4o",
+            "provider": "openai",
+            "display_name": "GPT-4o",
+            "speed_score": 8,
+            "reasoning_score": 9,
+            "coding_score": 8,
+            "cost_per_1m_tokens": 2.5,
+        }),
+        serde_json::json!({
+            "id": "gpt-4o-mini",
+            "provider": "openai",
+            "display_name": "GPT-4o Mini",
+            "speed_score": 10,
+            "reasoning_score": 7,
+            "coding_score": 7,
+            "cost_per_1m_tokens": 0.15,
+        }),
+        serde_json::json!({
+            "id": "openrouter/auto:free",
+            "provider": "openrouter",
+            "display_name": "OpenRouter Auto (Free)",
+            "speed_score": 8,
+            "reasoning_score": 6,
+            "coding_score": 6,
+            "cost_per_1m_tokens": 0.0,
+        }),
+    ])
+}
+
 fn main() {
     tauri::Builder::default()
         .manage(NexusState::new())
@@ -678,8 +1064,19 @@ fn main() {
             set_model,
             set_api_key,
             list_models,
+            set_oauth_credentials,
+            oauth_authorize,
+            oauth_check_status,
             test_provider_connection,
             get_config,
+            daemon_start,
+            daemon_stop,
+            daemon_status,
+            daemon_run_tasks,
+            hierarchy_get,
+            hierarchy_set_preset,
+            hierarchy_set_model,
+            get_model_capabilities,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -23,12 +23,50 @@ function App() {
 
     init();
 
-    // Set up periodic status check
-    const interval = setInterval(() => {
-      checkNexusStatus();
-    }, 30000);
+    // Smart status polling with exponential backoff
+    let pollInterval = 5000; // Start at 5s
+    let lastActivity = Date.now();
+    let intervalId: NodeJS.Timeout;
 
-    return () => clearInterval(interval);
+    const schedulePoll = () => {
+      const timeSinceActivity = Date.now() - lastActivity;
+
+      // Fast polling when active (< 1 min idle)
+      if (timeSinceActivity < 60000) {
+        pollInterval = 5000; // 5s
+      }
+      // Medium polling when recently active (1-5 min idle)
+      else if (timeSinceActivity < 300000) {
+        pollInterval = 15000; // 15s
+      }
+      // Slow polling when idle (5+ min)
+      else {
+        pollInterval = 60000; // 60s
+      }
+
+      intervalId = setTimeout(() => {
+        checkNexusStatus();
+        schedulePoll();
+      }, pollInterval);
+    };
+
+    // Track user activity
+    const resetActivity = () => {
+      lastActivity = Date.now();
+    };
+
+    window.addEventListener('click', resetActivity);
+    window.addEventListener('keypress', resetActivity);
+    window.addEventListener('focus', resetActivity);
+
+    schedulePoll();
+
+    return () => {
+      clearTimeout(intervalId);
+      window.removeEventListener('click', resetActivity);
+      window.removeEventListener('keypress', resetActivity);
+      window.removeEventListener('focus', resetActivity);
+    };
   }, [checkNexusStatus, initializeTauriListeners]);
 
   if (isInitializing) {

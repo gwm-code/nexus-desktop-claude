@@ -366,6 +366,9 @@ export interface NexusStatus {
   currentProject?: string;
   provider?: string;
   model?: string;
+  connectionMode?: 'ssh' | 'local' | 'none';  // How we're connected to CLI
+  sshLatency?: number;  // Ping latency in ms
+  remoteNexusInstalled?: boolean;  // Whether CLI exists on remote server
 }
 
 // ============================================================================

@@ -1,20 +1,23 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   X, Server, Shield, Key, Terminal, Check, AlertCircle,
   Palette, Code2, Settings2, Cpu, Zap, Eye, EyeOff,
-  RotateCcw, Database, Activity
+  RotateCcw, Database, Activity, FileText, Clock, Play, StopCircle,
+  Layers, Search
 } from 'lucide-react';
 import { useNexusStore } from '../store/useNexusStore';
 import { invoke } from '@tauri-apps/api/core';
 
-type Tab = 'connection' | 'provider' | 'appearance' | 'editor' | 'advanced';
+type Tab = 'connection' | 'provider' | 'appearance' | 'editor' | 'hierarchy' | 'advanced' | 'logs';
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'connection', label: 'Connection', icon: Server },
   { id: 'provider', label: 'Provider & Model', icon: Cpu },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'editor', label: 'Editor', icon: Code2 },
+  { id: 'hierarchy', label: 'Model Hierarchy', icon: Layers },
   { id: 'advanced', label: 'Advanced', icon: Settings2 },
+  { id: 'logs', label: 'Logs', icon: FileText },
 ];
 
 // Shared input styling
@@ -182,6 +185,13 @@ const ProviderTab: React.FC = () => {
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [savingKey, setSavingKey] = useState(false);
 
+  // OAuth state
+  const [oauthClientId, setOauthClientId] = useState('');
+  const [oauthClientSecret, setOauthClientSecret] = useState('');
+  const [showOauthSecret, setShowOauthSecret] = useState(false);
+  const [authorizingOAuth, setAuthorizingOAuth] = useState(false);
+  const [oauthStatus, setOauthStatus] = useState<{authorized: boolean; expiresAt?: string} | null>(null);
+
   const knownProviders = ['opencode', 'openrouter', 'google', 'claude', 'custom'];
   const providerList = availableProviders.length > 0
     ? [...new Set([...availableProviders, ...knownProviders])]
@@ -218,6 +228,57 @@ const ProviderTab: React.FC = () => {
     } catch {
       setTestStatus('error');
       setTimeout(() => setTestStatus('idle'), 3000);
+    }
+  };
+
+  // Check OAuth status when provider changes
+  useEffect(() => {
+    const checkOAuth = async () => {
+      if (['google', 'claude', 'openai'].includes(activeProvider)) {
+        try {
+          const status: {authorized: boolean; provider: string; expiresAt?: string} = await invoke('oauth_check_status', { provider: activeProvider });
+          setOauthStatus({ authorized: status.authorized, expiresAt: status.expiresAt });
+        } catch {
+          setOauthStatus({ authorized: false });
+        }
+      } else {
+        setOauthStatus(null);
+      }
+    };
+    checkOAuth();
+  }, [activeProvider]);
+
+  const handleOAuthAuthorize = async () => {
+    if (!oauthClientId.trim() || !oauthClientSecret.trim()) return;
+    setAuthorizingOAuth(true);
+    try {
+      // Save OAuth credentials
+      await invoke('set_oauth_credentials', {
+        provider: activeProvider,
+        clientId: oauthClientId.trim(),
+        clientSecret: oauthClientSecret.trim(),
+      });
+
+      // Get auth URL and open browser
+      const authUrl: string = await invoke('oauth_authorize', { provider: activeProvider });
+
+      // Open in browser (use Tauri shell)
+      window.open(authUrl, '_blank');
+
+      // Poll for completion
+      for (let i = 0; i < 30; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        const status: {authorized: boolean; expiresAt?: string} = await invoke('oauth_check_status', { provider: activeProvider });
+        if (status.authorized) {
+          setOauthStatus(status);
+          useNexusStore.getState().addToast({ type: 'success', title: 'OAuth Authorized!', message: `Successfully authorized ${activeProvider}` });
+          break;
+        }
+      }
+    } catch (e) {
+      useNexusStore.getState().addToast({ type: 'error', title: 'OAuth Failed', message: String(e) });
+    } finally {
+      setAuthorizingOAuth(false);
     }
   };
 
@@ -260,11 +321,163 @@ const ProviderTab: React.FC = () => {
         )}
       </div>
 
+      {/* Error Recovery UI */}
+      {!activeProvider && (
+        <div className="bg-yellow-600/10 border border-yellow-500/30 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-yellow-400 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-yellow-300 space-y-2">
+              <p className="font-medium">⚠️ No Provider Configured</p>
+              <p className="text-yellow-400/80">Select a provider above to get started. You'll need to configure authentication (API key or OAuth) for the provider to work.</p>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => {
+                    setProvider('google');
+                  }}
+                  className="px-2 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 rounded text-[10px] font-medium text-yellow-300 transition-colors"
+                >
+                  Configure Google (Free)
+                </button>
+                <button
+                  onClick={() => {
+                    setProvider('openrouter');
+                  }}
+                  className="px-2 py-1 bg-yellow-500/20 hover:bg-yellow-500/30 rounded text-[10px] font-medium text-yellow-300 transition-colors"
+                >
+                  Configure OpenRouter
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeProvider && availableModels.length === 0 && !oauthStatus?.authorized && (
+        <div className="bg-blue-600/10 border border-blue-500/30 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-blue-300 space-y-2">
+              <p className="font-medium">🔑 Authentication Required</p>
+              <p className="text-blue-400/80">
+                Provider <span className="font-mono text-blue-300">{activeProvider}</span> is selected but not authenticated.
+                {['google', 'claude', 'openai'].includes(activeProvider)
+                  ? ' Use OAuth (recommended) or add an API key below.'
+                  : ' Add an API key below to continue.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className={sectionTitleClass}>
         <Key className="w-3.5 h-3.5" />
         <span>Authentication</span>
       </div>
 
+      {/* OAuth UI for providers that support it */}
+      {['google', 'claude', 'openai'].includes(activeProvider) && (
+        <div className="space-y-4">
+          <div className="bg-blue-600/10 border border-blue-500/20 rounded-lg p-3 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-medium text-blue-300">
+              <Shield className="w-4 h-4" />
+              <span>OAuth Authentication (Recommended)</span>
+            </div>
+
+            {oauthStatus?.authorized ? (
+              <div className="flex items-center gap-2 text-xs text-green-400">
+                <Check className="w-4 h-4" />
+                <span>Authorized</span>
+                {oauthStatus.expiresAt && (
+                  <span className="text-zinc-500">• Expires: {oauthStatus.expiresAt}</span>
+                )}
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <label className={labelClass}>OAuth Client ID</label>
+                  <input
+                    type="text"
+                    value={oauthClientId}
+                    onChange={(e) => setOauthClientId(e.target.value)}
+                    className={inputClass}
+                    placeholder={
+                      activeProvider === 'google' ? 'xxxxx.apps.googleusercontent.com' :
+                      activeProvider === 'claude' ? 'claude_client_id' :
+                      'client_id'
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className={labelClass}>OAuth Client Secret</label>
+                  <div className="relative">
+                    <input
+                      type={showOauthSecret ? 'text' : 'password'}
+                      value={oauthClientSecret}
+                      onChange={(e) => setOauthClientSecret(e.target.value)}
+                      className={`${inputClass} pr-10`}
+                      placeholder={
+                        activeProvider === 'google' ? 'GOCSPX-...' :
+                        activeProvider === 'claude' ? 'secret_...' :
+                        'client_secret'
+                      }
+                    />
+                    <button
+                      onClick={() => setShowOauthSecret(!showOauthSecret)}
+                      className="absolute right-3 top-2.5 text-zinc-600 hover:text-zinc-400"
+                    >
+                      {showOauthSecret ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  onClick={handleOAuthAuthorize}
+                  disabled={!oauthClientId.trim() || !oauthClientSecret.trim() || authorizingOAuth}
+                  className="w-full px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-800 disabled:text-zinc-600 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2"
+                >
+                  {authorizingOAuth ? (
+                    <>
+                      <RotateCcw className="w-4 h-4 animate-spin" />
+                      Authorizing...
+                    </>
+                  ) : (
+                    <>
+                      <Shield className="w-4 h-4" />
+                      Authorize with {activeProvider === 'google' ? 'Google' : activeProvider === 'claude' ? 'Anthropic' : 'OpenAI'}
+                    </>
+                  )}
+                </button>
+
+                <p className="text-[10px] text-blue-400/80">
+                  Get credentials from:{' '}
+                  {activeProvider === 'google' && (
+                    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" className="underline hover:text-blue-200">
+                      Google Cloud Console
+                    </a>
+                  )}
+                  {activeProvider === 'claude' && (
+                    <a href="https://console.anthropic.com/settings/oauth" target="_blank" rel="noopener" className="underline hover:text-blue-200">
+                      Anthropic Console
+                    </a>
+                  )}
+                  {activeProvider === 'openai' && (
+                    <a href="https://platform.openai.com/settings/organization/oauth" target="_blank" rel="noopener" className="underline hover:text-blue-200">
+                      OpenAI Platform
+                    </a>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="text-center text-xs text-zinc-500">
+            — or —
+          </div>
+        </div>
+      )}
+
+      {/* API Key for all providers */}
       <div className="space-y-1.5">
         <label className={labelClass}>API Key {activeProvider ? `(${activeProvider})` : ''}</label>
         <div className="flex gap-2">
@@ -477,6 +690,449 @@ const EditorTab: React.FC = () => {
 };
 
 // ============================================================================
+// Heartbeat Section Component
+// ============================================================================
+
+const HeartbeatSection: React.FC = () => {
+  const { addToast } = useNexusStore();
+  const [daemonStatus, setDaemonStatus] = useState<{
+    running: boolean;
+    pid?: number;
+    interval_hours?: number;
+    last_run?: string;
+    next_run?: string;
+  } | null>(null);
+  const [heartbeatInterval, setHeartbeatInterval] = useState(24);
+  const [loading, setLoading] = useState(false);
+
+  const fetchDaemonStatus = async () => {
+    try {
+      const status = await invoke<{
+        running: boolean;
+        pid?: number;
+        interval_hours?: number;
+        last_run?: string;
+        next_run?: string;
+      }>('daemon_status');
+      setDaemonStatus(status);
+      if (status.interval_hours) {
+        setHeartbeatInterval(status.interval_hours);
+      }
+    } catch (e) {
+      console.error('Failed to fetch daemon status:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchDaemonStatus();
+    const pollInterval = setInterval(fetchDaemonStatus, 10000); // Poll every 10s
+    return () => clearInterval(pollInterval);
+  }, []);
+
+  const handleStart = async () => {
+    setLoading(true);
+    try {
+      await invoke('daemon_start', { interval: heartbeatInterval });
+      addToast({ type: 'success', title: 'Heartbeat daemon started', message: `Running every ${heartbeatInterval} hours` });
+      await fetchDaemonStatus();
+    } catch (e) {
+      addToast({ type: 'error', title: 'Failed to start daemon', message: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setLoading(true);
+    try {
+      await invoke('daemon_stop');
+      addToast({ type: 'success', title: 'Heartbeat daemon stopped' });
+      await fetchDaemonStatus();
+    } catch (e) {
+      addToast({ type: 'error', title: 'Failed to stop daemon', message: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRunNow = async () => {
+    setLoading(true);
+    try {
+      await invoke('daemon_run_tasks');
+      addToast({ type: 'success', title: 'Proactive tasks completed' });
+      await fetchDaemonStatus();
+    } catch (e) {
+      addToast({ type: 'error', title: 'Tasks failed', message: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      <div className={sectionTitleClass}>
+        <Clock className="w-3.5 h-3.5" />
+        <span>Proactive Heartbeat</span>
+      </div>
+
+      <div className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 space-y-3">
+        <p className="text-[11px] text-zinc-500">
+          Run proactive tasks in the background at regular intervals: memory consolidation, TODO scanning, dependency checks, and build error detection.
+        </p>
+
+        {daemonStatus && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-zinc-500">Status:</span>
+              <span className={daemonStatus.running ? 'text-emerald-400' : 'text-zinc-600'}>
+                {daemonStatus.running ? 'Running' : 'Stopped'}
+                {daemonStatus.pid && ` (PID ${daemonStatus.pid})`}
+              </span>
+            </div>
+
+            {daemonStatus.last_run && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">Last Run:</span>
+                <span className="text-zinc-400">{daemonStatus.last_run}</span>
+              </div>
+            )}
+
+            {daemonStatus.next_run && (
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-zinc-500">Next Run:</span>
+                <span className="text-zinc-400">{daemonStatus.next_run}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <label className={labelClass}>
+            Heartbeat Interval ({heartbeatInterval} hours)
+          </label>
+          <input
+            type="range"
+            min={1}
+            max={24}
+            step={1}
+            value={heartbeatInterval}
+            onChange={(e) => setHeartbeatInterval(parseInt(e.target.value))}
+            disabled={daemonStatus?.running || loading}
+            className="w-full accent-blue-500 disabled:opacity-50"
+          />
+          <div className="flex justify-between text-[10px] text-zinc-600">
+            <span>1h</span>
+            <span>12h</span>
+            <span>24h</span>
+          </div>
+        </div>
+
+        <div className="flex gap-2">
+          {!daemonStatus?.running ? (
+            <button
+              onClick={handleStart}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 disabled:opacity-50 border border-emerald-500/30 rounded-lg text-xs font-medium text-emerald-400 transition-colors"
+            >
+              {loading ? (
+                <div className="animate-spin h-3.5 w-3.5 border-2 border-emerald-500/30 border-t-emerald-300 rounded-full" />
+              ) : (
+                <Play className="w-3.5 h-3.5" />
+              )}
+              <span>Start Heartbeat</span>
+            </button>
+          ) : (
+            <button
+              onClick={handleStop}
+              disabled={loading}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 disabled:opacity-50 border border-red-500/30 rounded-lg text-xs font-medium text-red-400 transition-colors"
+            >
+              {loading ? (
+                <div className="animate-spin h-3.5 w-3.5 border-2 border-red-500/30 border-t-red-300 rounded-full" />
+              ) : (
+                <StopCircle className="w-3.5 h-3.5" />
+              )}
+              <span>Stop Heartbeat</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleRunNow}
+            disabled={loading}
+            className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600/20 hover:bg-blue-600/30 disabled:opacity-50 border border-blue-500/30 rounded-lg text-xs font-medium text-blue-400 transition-colors"
+          >
+            {loading ? (
+              <div className="animate-spin h-3.5 w-3.5 border-2 border-blue-500/30 border-t-blue-300 rounded-full" />
+            ) : (
+              <Zap className="w-3.5 h-3.5" />
+            )}
+            <span>Run Now</span>
+          </button>
+        </div>
+      </div>
+    </>
+  );
+};
+
+// Hierarchy Tab
+// ============================================================================
+
+interface ModelCapability {
+  id: string;
+  provider: string;
+  display_name: string;
+  speed_score: number;
+  reasoning_score: number;
+  coding_score: number;
+  cost_per_1m_tokens: number;
+}
+
+interface ModelTier {
+  model_id: string;
+  max_tokens?: number;
+  max_cost_per_request?: number;
+}
+
+interface Hierarchy {
+  heartbeat: ModelTier[];
+  daily: ModelTier[];
+  planning: ModelTier[];
+  coding: ModelTier[];
+  review: ModelTier[];
+}
+
+const HierarchyTab: React.FC = () => {
+  const { addToast } = useNexusStore();
+  const [hierarchy, setHierarchy] = useState<Hierarchy | null>(null);
+  const [models, setModels] = useState<ModelCapability[]>([]);
+  const [selectedPreset, setSelectedPreset] = useState<string>('balanced');
+  const [loading, setLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+
+  const presets = [
+    { id: 'balanced', label: 'Balanced', description: 'Good mix of speed, cost, and quality' },
+    { id: 'budget', label: 'Budget', description: 'Minimize costs with free/cheap models' },
+    { id: 'premium', label: 'Premium', description: 'Best models, ignore cost' },
+    { id: 'speed', label: 'Speed', description: 'Prioritize fast responses' },
+    { id: 'claude-only', label: 'Claude Only', description: 'Use only Claude models' },
+  ];
+
+  const categories = [
+    { id: 'heartbeat', label: 'Heartbeat', description: 'Proactive checks, simple automation', icon: Clock },
+    { id: 'daily', label: 'Daily', description: 'Simple queries, file reads, status', icon: Activity },
+    { id: 'planning', label: 'Planning', description: 'Architecture, design, reasoning', icon: Zap },
+    { id: 'coding', label: 'Coding', description: 'Code generation, refactoring', icon: Code2 },
+    { id: 'review', label: 'Review', description: 'Code review, testing, validation', icon: Check },
+  ];
+
+  useEffect(() => {
+    loadHierarchy();
+    loadModels();
+  }, []);
+
+  const loadHierarchy = async () => {
+    try {
+      const data = await invoke<Hierarchy>('hierarchy_get');
+      setHierarchy(data);
+    } catch (e) {
+      console.error('Failed to load hierarchy:', e);
+      addToast({ type: 'error', title: 'Failed to load hierarchy', message: String(e) });
+    }
+  };
+
+  const loadModels = async () => {
+    try {
+      const data = await invoke<ModelCapability[]>('get_model_capabilities');
+      setModels(data);
+    } catch (e) {
+      console.error('Failed to load models:', e);
+    }
+  };
+
+  const handlePresetChange = async (preset: string) => {
+    setLoading(true);
+    try {
+      await invoke('hierarchy_set_preset', { preset });
+      setSelectedPreset(preset);
+      await loadHierarchy();
+      addToast({ type: 'success', title: 'Preset applied', message: `Switched to ${preset} preset` });
+      setEditMode(false);
+    } catch (e) {
+      addToast({ type: 'error', title: 'Failed to set preset', message: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleModelChange = async (category: string, tier: number, modelId: string) => {
+    setLoading(true);
+    try {
+      await invoke('hierarchy_set_model', { category, tier, modelId });
+      await loadHierarchy();
+      addToast({ type: 'success', title: 'Model updated', message: `Set ${category} tier ${tier + 1} to ${modelId}` });
+    } catch (e) {
+      addToast({ type: 'error', title: 'Failed to update model', message: String(e) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getModelDisplay = (modelId: string) => {
+    const model = models.find(m => m.id === modelId);
+    if (!model) return modelId;
+
+    const costBadge = model.cost_per_1m_tokens === 0 ? '💚 Free' : `$${model.cost_per_1m_tokens.toFixed(2)}/1M`;
+    return `${model.display_name} - ${costBadge}`;
+  };
+
+  const ScoreBadge: React.FC<{ label: string; score: number; max?: number }> = ({ label, score, max = 10 }) => {
+    const percentage = (score / max) * 100;
+    const color = percentage >= 80 ? 'emerald' : percentage >= 60 ? 'blue' : percentage >= 40 ? 'yellow' : 'red';
+
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-zinc-600 uppercase">{label}</span>
+        <div className="flex gap-0.5">
+          {Array.from({ length: max }).map((_, i) => (
+            <div
+              key={i}
+              className={`w-1 h-3 rounded-sm ${
+                i < score ? `bg-${color}-500` : 'bg-zinc-800'
+              }`}
+            />
+          ))}
+        </div>
+        <span className="text-[10px] text-zinc-500 ml-0.5">{score}</span>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Preset Selection */}
+      <div>
+        <div className={sectionTitleClass}>
+          <Layers className="w-3.5 h-3.5" />
+          <span>Quick Presets</span>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          {presets.map(preset => (
+            <button
+              key={preset.id}
+              onClick={() => handlePresetChange(preset.id)}
+              disabled={loading}
+              className={`p-3 rounded-lg border text-left transition-all ${
+                selectedPreset === preset.id
+                  ? 'bg-blue-600/20 border-blue-500/50 text-blue-300'
+                  : 'bg-zinc-900/50 border-zinc-800 text-zinc-400 hover:border-zinc-700'
+              } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              <div className="text-xs font-medium">{preset.label}</div>
+              <div className="text-[10px] text-zinc-600 mt-0.5">{preset.description}</div>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 mt-3">
+          <button
+            onClick={() => setEditMode(!editMode)}
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            {editMode ? '← Back to presets' : '✏️ Customize tiers'}
+          </button>
+        </div>
+      </div>
+
+      {/* Custom Hierarchy Editor */}
+      {editMode && hierarchy && (
+        <div className="space-y-4">
+          <div className={sectionTitleClass}>
+            <Settings2 className="w-3.5 h-3.5" />
+            <span>Custom Hierarchy</span>
+          </div>
+
+          {categories.map(category => {
+            const Icon = category.icon;
+            const tiers = hierarchy[category.id as keyof Hierarchy] || [];
+
+            return (
+              <div key={category.id} className="bg-zinc-900/50 border border-zinc-800 rounded-lg p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Icon className="w-3.5 h-3.5 text-zinc-500" />
+                  <span className="text-sm font-medium text-zinc-300">{category.label}</span>
+                  <span className="text-[10px] text-zinc-600 ml-auto">{category.description}</span>
+                </div>
+
+                {tiers.map((tier, index) => (
+                  <div key={index} className="space-y-1.5">
+                    <label className={labelClass}>
+                      Tier {index + 1} {index === 0 && '(Primary)'}
+                    </label>
+                    <select
+                      value={tier.model_id}
+                      onChange={(e) => handleModelChange(category.id, index, e.target.value)}
+                      disabled={loading}
+                      className={inputClass}
+                    >
+                      <option value="">Select model...</option>
+                      {models.map(model => (
+                        <option key={model.id} value={model.id}>
+                          {getModelDisplay(model.id)}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Show model details */}
+                    {tier.model_id && models.find(m => m.id === tier.model_id) && (
+                      <div className="flex gap-3 px-2">
+                        <ScoreBadge
+                          label="Speed"
+                          score={models.find(m => m.id === tier.model_id)!.speed_score}
+                        />
+                        <ScoreBadge
+                          label="Reason"
+                          score={models.find(m => m.id === tier.model_id)!.reasoning_score}
+                        />
+                        <ScoreBadge
+                          label="Code"
+                          score={models.find(m => m.id === tier.model_id)!.coding_score}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ))}
+
+                {tiers.length === 0 && (
+                  <p className="text-xs text-zinc-600 italic">No tiers configured</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Info Panel */}
+      {!editMode && (
+        <div className="bg-blue-600/10 border border-blue-500/20 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+            <div className="text-xs text-blue-300 space-y-1">
+              <p className="font-medium">How Model Hierarchy Works:</p>
+              <ul className="list-disc list-inside text-[11px] text-blue-400/80 space-y-0.5">
+                <li>Tasks are categorized automatically (heartbeat, daily, planning, coding, review)</li>
+                <li>Each category has 1-3 tiers (Tier 1 = cheapest/fastest, Tier 2+ = escalation)</li>
+                <li>If a model fails or refuses, the system auto-escalates to the next tier</li>
+                <li>Presets configure all categories at once, or customize per-category</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Advanced Tab
 // ============================================================================
 
@@ -594,6 +1250,8 @@ const AdvancedTab: React.FC = () => {
         </button>
       </div>
 
+      <HeartbeatSection />
+
       <div className={sectionTitleClass}>
         <RotateCcw className="w-3.5 h-3.5" />
         <span>Reset</span>
@@ -614,43 +1272,243 @@ const AdvancedTab: React.FC = () => {
 };
 
 // ============================================================================
+// Logs Tab
+// ============================================================================
+
+const LogsTab: React.FC = () => {
+  const { logs, clearLogs } = useNexusStore();
+  const [filterLevel, setFilterLevel] = useState<'all' | 'error' | 'warn' | 'info' | 'debug'>('all');
+  const [autoScroll, setAutoScroll] = useState(true);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (autoScroll && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [logs, autoScroll]);
+
+  const filteredLogs = logs.filter(log =>
+    filterLevel === 'all' || log.level === filterLevel
+  );
+
+  const getLevelColor = (level: string) => {
+    switch (level) {
+      case 'error': return 'text-red-400 bg-red-500/10';
+      case 'warn': return 'text-yellow-400 bg-yellow-500/10';
+      case 'info': return 'text-blue-400 bg-blue-500/10';
+      case 'debug': return 'text-zinc-400 bg-zinc-500/10';
+      default: return 'text-zinc-300';
+    }
+  };
+
+  const getSourceIcon = (source: string) => {
+    switch (source) {
+      case 'frontend': return '🖥️';
+      case 'backend': return '⚙️';
+      case 'cli': return '💻';
+      default: return '📄';
+    }
+  };
+
+  const exportLogs = () => {
+    const blob = new Blob([JSON.stringify(logs, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus-logs-${new Date().toISOString()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Header Controls */}
+      <div className="flex items-center justify-between">
+        <div className="flex gap-2">
+          <select
+            value={filterLevel}
+            onChange={(e) => setFilterLevel(e.target.value as any)}
+            className="px-3 py-1.5 bg-zinc-800 rounded text-xs"
+          >
+            <option value="all">All Levels</option>
+            <option value="error">Errors Only</option>
+            <option value="warn">Warnings Only</option>
+            <option value="info">Info Only</option>
+            <option value="debug">Debug Only</option>
+          </select>
+
+          <label className="flex items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              checked={autoScroll}
+              onChange={(e) => setAutoScroll(e.target.checked)}
+            />
+            Auto-scroll
+          </label>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            onClick={exportLogs}
+            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 rounded text-xs"
+          >
+            📥 Export
+          </button>
+          <button
+            onClick={clearLogs}
+            className="px-3 py-1.5 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded text-xs"
+          >
+            🗑️ Clear
+          </button>
+        </div>
+      </div>
+
+      {/* Logs Display */}
+      <div className="bg-zinc-900 rounded-lg border border-zinc-800 h-96 overflow-y-auto font-mono text-xs">
+        {filteredLogs.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-zinc-600">
+            No logs to display
+          </div>
+        ) : (
+          <div className="p-2 space-y-1">
+            {filteredLogs.map((log, idx) => (
+              <div
+                key={idx}
+                className={`p-2 rounded ${getLevelColor(log.level)}`}
+              >
+                <div className="flex items-start gap-2">
+                  <span className="opacity-60">
+                    {new Date(log.timestamp).toLocaleTimeString()}
+                  </span>
+                  <span>{getSourceIcon(log.source)}</span>
+                  <span className="uppercase font-bold">{log.level}</span>
+                  <span className="flex-1">{log.message}</span>
+                </div>
+                {log.details && (
+                  <div className="mt-1 pl-20 text-zinc-500 text-[10px]">
+                    {log.details}
+                  </div>
+                )}
+              </div>
+            ))}
+            <div ref={logsEndRef} />
+          </div>
+        )}
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-2 text-xs">
+        <div className="bg-zinc-800 rounded p-2 text-center">
+          <div className="text-zinc-500">Total</div>
+          <div className="text-lg font-bold">{logs.length}</div>
+        </div>
+        <div className="bg-red-500/10 rounded p-2 text-center">
+          <div className="text-red-400">Errors</div>
+          <div className="text-lg font-bold text-red-400">
+            {logs.filter(l => l.level === 'error').length}
+          </div>
+        </div>
+        <div className="bg-yellow-500/10 rounded p-2 text-center">
+          <div className="text-yellow-400">Warnings</div>
+          <div className="text-lg font-bold text-yellow-400">
+            {logs.filter(l => l.level === 'warn').length}
+          </div>
+        </div>
+        <div className="bg-blue-500/10 rounded p-2 text-center">
+          <div className="text-blue-400">Info</div>
+          <div className="text-lg font-bold text-blue-400">
+            {logs.filter(l => l.level === 'info').length}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
 // Main Settings Modal
 // ============================================================================
 
 export const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<Tab>('connection');
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Filter tabs based on search query
+  const filteredTabs = tabs.filter(tab => {
+    if (!searchQuery) return true;
+    const query = searchQuery.toLowerCase();
+    return tab.label.toLowerCase().includes(query) ||
+           tab.id.toLowerCase().includes(query);
+  });
+
+  // Auto-switch to first matching tab when searching
+  useEffect(() => {
+    if (searchQuery && filteredTabs.length > 0 && !filteredTabs.find(t => t.id === activeTab)) {
+      setActiveTab(filteredTabs[0].id);
+    }
+  }, [searchQuery, filteredTabs, activeTab]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
       <div className="w-[680px] max-h-[85vh] bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/50">
-          <div className="flex items-center gap-2">
-            <Settings2 className="w-5 h-5 text-blue-500" />
-            <h2 className="text-lg font-semibold text-zinc-100">Settings</h2>
+        <div className="px-6 py-4 border-b border-zinc-800 bg-zinc-900/50 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Settings2 className="w-5 h-5 text-blue-500" />
+              <h2 className="text-lg font-semibold text-zinc-100">Settings</h2>
+            </div>
+            <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white transition-colors">
+              <X size={20} />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1 text-zinc-500 hover:text-white transition-colors">
-            <X size={20} />
-          </button>
+
+          {/* Search Box */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+            <input
+              type="text"
+              placeholder="Search settings..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-zinc-950 border border-zinc-800 rounded-lg pl-9 pr-3 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300 text-xs"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-1 min-h-0">
           {/* Tab Sidebar */}
           <div className="w-48 border-r border-zinc-800 bg-zinc-950/50 py-2 flex-shrink-0">
-            {tabs.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                onClick={() => setActiveTab(id)}
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium transition-colors ${
-                  activeTab === id
-                    ? 'bg-zinc-800/80 text-zinc-100 border-r-2 border-blue-500'
-                    : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {label}
-              </button>
-            ))}
+            {filteredTabs.length === 0 ? (
+              <div className="px-4 py-8 text-center">
+                <p className="text-xs text-zinc-600">No matching settings</p>
+              </div>
+            ) : (
+              filteredTabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-xs font-medium transition-colors ${
+                    activeTab === id
+                      ? 'bg-zinc-800/80 text-zinc-100 border-r-2 border-blue-500'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/40'
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </button>
+              ))
+            )}
           </div>
 
           {/* Tab Content */}
@@ -659,7 +1517,9 @@ export const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) =>
             {activeTab === 'provider' && <ProviderTab />}
             {activeTab === 'appearance' && <AppearanceTab />}
             {activeTab === 'editor' && <EditorTab />}
+            {activeTab === 'hierarchy' && <HierarchyTab />}
             {activeTab === 'advanced' && <AdvancedTab />}
+            {activeTab === 'logs' && <LogsTab />}
           </div>
         </div>
       </div>

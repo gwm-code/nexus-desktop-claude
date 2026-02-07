@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Desktop - Sovereign AI Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap');
+        body { font-family: 'Inter', sans-serif; background-color: #09090b; color: #f4f4f5; }
+        .glass { background: rgba(24, 24, 27, 0.6); backdrop-filter: blur(12px); border: 1px solid rgba(63, 63, 70, 0.4); }
+        .gradient-text { background: linear-gradient(135deg, #60a5fa 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .slide { display: none; transition: opacity 0.5s ease-in-out; }
+        .slide.active { display: flex; opacity: 1; }
+        .feature-tag { background: rgba(39, 39, 42, 0.8); border: 1px solid rgba(63, 63, 70, 0.5); border-radius: 9999px; padding: 4px 12px; font-size: 0.75rem; font-weight: 600; color: #a1a1aa; }
+    </style>
+</head>
+<body class="h-screen overflow-hidden flex items-center justify-center p-4 lg:p-8">
+
+    <div class="max-w-6xl w-full aspect-video glass rounded-[2rem] overflow-hidden flex flex-col relative shadow-2xl">
+        
+        <!-- Navbar -->
+        <div class="p-6 flex justify-between items-center z-10">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-600/20">
+                    <i class="fas fa-microchip text-white text-lg"></i>
+                </div>
+                <span class="font-black text-xl tracking-tighter uppercase italic">Nexus<span class="font-light lowercase opacity-50">.desktop</span></span>
+            </div>
+            <div id="slide-counter" class="font-mono text-xs text-zinc-500 tracking-widest">01 / 06</div>
+        </div>
+
+        <!-- Slides Container -->
+        <div class="flex-1 relative px-12 pb-12 flex items-center">
+            
+            <!-- Slide 1: Welcome -->
+            <div class="slide active flex-col lg:flex-row gap-12 items-center w-full" data-index="1">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-blue-400 font-mono text-xs tracking-[0.3em] uppercase">Sovereign OS Interface</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">Beyond the <br/><span class="gradient-text">Chatbot.</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">Nexus is a professional-grade AI workstation. High-density, autonomous, and local-first development.</p>
+                    <div class="flex gap-3">
+                        <span class="feature-tag">Next-Gen Rust Core</span>
+                        <span class="feature-tag">Local-First IP</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-blue-500/10 rounded-full flex items-center justify-center border border-blue-500/20 relative">
+                        <div class="absolute inset-0 bg-blue-500/5 blur-3xl rounded-full animate-pulse"></div>
+                        <i class="fas fa-rocket text-7xl text-blue-400 relative z-10"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 2: 4-Pane IDE -->
+            <div class="slide flex-col lg:flex-row gap-12 items-center w-full" data-index="2">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-purple-400 font-mono text-xs tracking-[0.3em] uppercase">Command Center</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">Dynamic <br/><span class="gradient-text">4-Pane IDE</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">A layout built for production. Toggle between Swarm, Chat, Context, and Terminal with a single key.</p>
+                    <div class="grid grid-cols-2 gap-2">
+                        <span class="feature-tag">Resizable Workspace</span>
+                        <span class="feature-tag">Integrated Terminal</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-purple-500/10 rounded-full flex items-center justify-center border border-purple-500/20">
+                        <i class="fas fa-columns text-7xl text-purple-400"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 3: Swarm -->
+            <div class="slide flex-col lg:flex-row gap-12 items-center w-full" data-index="3">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-cyan-400 font-mono text-xs tracking-[0.3em] uppercase">Agent Orchestration</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">The Agent <br/><span class="gradient-text">Fleet.</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">Deploy specialized agents for Backend, Frontend, and Architecture. Watch the swarm execute in real-time.</p>
+                    <div class="flex gap-3">
+                        <span class="feature-tag">Autonomous Progress</span>
+                        <span class="feature-tag">Multi-Agent Sync</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-cyan-500/10 rounded-full flex items-center justify-center border border-cyan-500/20">
+                        <i class="fas fa-users-rays text-7xl text-cyan-400"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 4: Watcher -->
+            <div class="slide flex-col lg:flex-row gap-12 items-center w-full" data-index="4">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-emerald-400 font-mono text-xs tracking-[0.3em] uppercase">Self-Healing</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">Auto-Pilot <br/><span class="gradient-text">Watcher.</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">Real-time filesystem monitoring. Detects errors, analyzes root causes, and generates fixes automatically.</p>
+                    <div class="flex gap-3">
+                        <span class="feature-tag">Log Monitoring</span>
+                        <span class="feature-tag">Instant Patching</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-emerald-500/10 rounded-full flex items-center justify-center border border-emerald-500/20">
+                        <i class="fas fa-eye text-7xl text-emerald-400"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 5: Memory -->
+            <div class="slide flex-col lg:flex-row gap-12 items-center w-full" data-index="5">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-orange-400 font-mono text-xs tracking-[0.3em] uppercase">Persistent Intelligence</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">Memory <br/><span class="gradient-text">Engine.</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">A private Graph DB of your style. Nexus learns your project structure so it never makes the same mistake twice.</p>
+                    <div class="flex gap-3">
+                        <span class="feature-tag">Vector Search</span>
+                        <span class="feature-tag">Lesson Consolidation</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-orange-500/10 rounded-full flex items-center justify-center border border-orange-500/20">
+                        <i class="fas fa-brain text-7xl text-orange-400"></i>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Slide 6: Security -->
+            <div class="slide flex-col lg:flex-row gap-12 items-center w-full" data-index="6">
+                <div class="flex-1 space-y-6">
+                    <div class="space-y-2">
+                        <h3 class="text-red-400 font-mono text-xs tracking-[0.3em] uppercase">Encrypted Workspace</h3>
+                        <h2 class="text-6xl font-black tracking-tight leading-tight">Sovereign <br/><span class="gradient-text">Security.</span></h2>
+                    </div>
+                    <p class="text-xl text-zinc-400 leading-relaxed max-w-md">Built-in ED25519 authentication and SSH bridging. Your keys, your data, your sovereign IP.</p>
+                    <div class="flex gap-3">
+                        <span class="feature-tag">ED25519 Auth</span>
+                        <span class="feature-tag">SSH Bridging</span>
+                    </div>
+                </div>
+                <div class="flex-1 flex justify-center">
+                    <div class="w-64 h-64 bg-red-500/10 rounded-full flex items-center justify-center border border-red-500/20">
+                        <i class="fas fa-shield-halved text-7xl text-red-400"></i>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Controls -->
+        <div class="p-8 flex justify-between items-center z-10">
+            <div class="flex gap-4">
+                <button onclick="prevSlide()" class="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-800 flex items-center justify-center hover:bg-zinc-800 transition-all active:scale-95">
+                    <i class="fas fa-chevron-left text-zinc-400"></i>
+                </button>
+                <button onclick="nextSlide()" class="h-14 px-8 rounded-2xl bg-blue-600 border border-blue-500 flex items-center justify-center hover:bg-blue-500 transition-all active:scale-95 shadow-lg shadow-blue-600/30 gap-3">
+                    <span class="font-bold uppercase tracking-widest text-sm">Next Feature</span>
+                    <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+            
+            <div class="flex gap-2">
+                <div class="dot w-8 h-1.5 bg-blue-500 rounded-full"></div>
+                <div class="dot w-2 h-1.5 bg-zinc-800 rounded-full"></div>
+                <div class="dot w-2 h-1.5 bg-zinc-800 rounded-full"></div>
+                <div class="dot w-2 h-1.5 bg-zinc-800 rounded-full"></div>
+                <div class="dot w-2 h-1.5 bg-zinc-800 rounded-full"></div>
+                <div class="dot w-2 h-1.5 bg-zinc-800 rounded-full"></div>
+            </div>
+        </div>
+
+        <!-- Background Decor -->
+        <div class="absolute -bottom-24 -left-24 w-96 h-96 bg-blue-600/10 rounded-full blur-[120px]"></div>
+        <div class="absolute -top-24 -right-24 w-96 h-96 bg-purple-600/10 rounded-full blur-[120px]"></div>
+    </div>
+
+    <script>
+        let current = 0;
+        const slides = document.querySelectorAll('.slide');
+        const dots = document.querySelectorAll('.dot');
+        const counter = document.getElementById('slide-counter');
+
+        function updateSlide() {
+            slides.forEach((s, i) => {
+                s.classList.toggle('active', i === current);
+            });
+            dots.forEach((d, i) => {
+                d.style.width = i === current ? '32px' : '8px';
+                d.style.backgroundColor = i === current ? '#3b82f6' : '#27272a';
+            });
+            counter.innerText = `0${current + 1} / 0${slides.length}`;
+        }
+
+        function nextSlide() {
+            current = (current + 1) % slides.length;
+            updateSlide();
+        }
+
+        function prevSlide() {
+            current = (current - 1 + slides.length) % slides.length;
+            updateSlide();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if(e.key === 'ArrowRight') nextSlide();
+            if(e.key === 'ArrowLeft') prevSlide();
+        });
+    </script>
+</body>
+</html>
