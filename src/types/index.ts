@@ -473,6 +473,18 @@ export interface ErrorEventPayload {
 }
 
 // ============================================================================
+// Toast Notification Types
+// ============================================================================
+
+export interface Toast {
+  id: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  title: string;
+  message?: string;
+  duration?: number; // ms, default 5000
+}
+
+// ============================================================================
 // API Response Types
 // ============================================================================
 

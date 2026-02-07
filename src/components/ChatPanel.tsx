@@ -14,6 +14,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useNexusStore } from '../store/useNexusStore';
 import type { ChatMessage } from '../types';
 
@@ -262,18 +263,34 @@ export const ChatPanel: React.FC = () => {
     addMessage(assistantPlaceholder);
 
     try {
-      // Call backend
-      const response: string = await invoke('send_chat_message', { message: content });
+      // Set up streaming listeners
+      const unlistenChunk = await listen<{ messageId: string; chunk: string }>('nexus://chat-chunk', (event) => {
+        if (event.payload.messageId === assistantId) {
+          updateChatStream(assistantId, event.payload.chunk);
+        }
+      });
+      const unlistenDone = await listen<{ messageId: string }>('nexus://chat-done', (event) => {
+        if (event.payload.messageId === assistantId) {
+          completeChatStream(assistantId);
+          setIsSending(false);
+          unlistenChunk();
+          unlistenDone();
+          unlistenError();
+        }
+      });
+      const unlistenError = await listen<{ messageId: string; error: string }>('nexus://chat-error', (event) => {
+        if (event.payload.messageId === assistantId) {
+          updateChatStream(assistantId, `\nError: ${event.payload.error}`);
+        }
+      });
 
-      // Update assistant message with real content
-      updateChatStream(assistantId, response);
-      completeChatStream(assistantId);
+      // Fire streaming request (non-blocking on the Tauri side)
+      await invoke('send_chat_message_stream', { message: content, messageId: assistantId });
     } catch (error) {
       const errMsg = String(error);
       console.error('Failed to send message:', error);
       updateChatStream(assistantId, `Error: ${errMsg}`);
       completeChatStream(assistantId);
-    } finally {
       setIsSending(false);
     }
   };

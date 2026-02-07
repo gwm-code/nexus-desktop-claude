@@ -5,6 +5,7 @@ import { ContextPanel } from './ContextPanel';
 import { TerminalPanel } from './TerminalPanel';
 import { StatusBar } from './StatusBar';
 import { SettingsModal } from './SettingsModal';
+import { ErrorBoundary } from './ErrorBoundary';
 import { useNexusStore } from '../store/useNexusStore';
 
 export const MainLayout: React.FC = () => {
@@ -76,7 +77,9 @@ export const MainLayout: React.FC = () => {
       {showSwarm && (
         <>
           <div style={{ width: swarmWidth }} className="flex-shrink-0 h-full">
-            <SwarmPanel onToggle={() => setShowSwarm(false)} />
+            <ErrorBoundary fallbackTitle="Swarm">
+              <SwarmPanel onToggle={() => setShowSwarm(false)} />
+            </ErrorBoundary>
           </div>
           <div
             className="w-1 bg-transparent hover:bg-blue-500/50 cursor-ew-resize transition-colors"
@@ -89,7 +92,9 @@ export const MainLayout: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 h-full">
         {/* Chat Area */}
         <div className="flex-1 min-h-0 overflow-hidden">
-          <ChatPanel />
+          <ErrorBoundary fallbackTitle="Chat">
+            <ChatPanel />
+          </ErrorBoundary>
         </div>
 
         {/* Terminal */}

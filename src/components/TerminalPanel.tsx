@@ -38,6 +38,10 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ onClose }) => {
   const addTerminalOutputRef = useRef<((output: any) => void) | null>(null);
   const currentProjectRef = useRef<any>(null);
 
+  // Command history refs for arrow-key navigation
+  const commandHistoryRef = useRef<string[]>([]);
+  const historyIndexRef = useRef<number>(-1);
+
   const terminalHistory = useTerminalHistory();
   const { executeCommand, addTerminalOutput, currentProject } = useNexusStore();
   const isConnected = useIsConnected();
@@ -67,8 +71,23 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ onClose }) => {
     printPrompt(xterm);
   }, [printPrompt]);
 
+  // Helper: clear current input line and reprint prompt
+  const clearInputLine = useCallback((xterm: XTerm) => {
+    xterm.write('\r');       // Move cursor to start of line
+    xterm.write('\x1b[K');   // Clear from cursor to end of line
+    printPrompt(xterm);
+  }, [printPrompt]);
+
   // Execute command (reads from ref, not stale state)
   const doExecute = useCallback(async (xterm: XTerm, command: string) => {
+    // Track command in history (max 100 entries)
+    const history = commandHistoryRef.current;
+    history.push(command);
+    if (history.length > 100) {
+      history.shift();
+    }
+    historyIndexRef.current = -1;
+
     setCurrentCommand('');
     currentCommandRef.current = '';
     setIsExecuting(true);
@@ -169,6 +188,9 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ onClose }) => {
         const cmd = currentCommandRef.current.trim();
         if (cmd) {
           doExecute(xterm, cmd);
+        } else {
+          xterm.writeln('');
+          printPrompt(xterm);
         }
       } else if (data === '\x7f') {
         if (currentCommandRef.current.length > 0) {
@@ -181,6 +203,49 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ onClose }) => {
         printPrompt(xterm);
         currentCommandRef.current = '';
         setCurrentCommand('');
+        historyIndexRef.current = -1;
+      } else if (data === '\x0c') {
+        // Ctrl+L: clear terminal, preserve current partial command
+        const partialCmd = currentCommandRef.current;
+        xterm.clear();
+        clearInputLine(xterm);
+        xterm.write(partialCmd);
+      } else if (data === '\x1b[A') {
+        // Up arrow: navigate backward through history
+        const history = commandHistoryRef.current;
+        if (history.length === 0) return;
+
+        if (historyIndexRef.current === -1) {
+          // Starting to navigate: begin at the most recent command
+          historyIndexRef.current = history.length - 1;
+        } else if (historyIndexRef.current > 0) {
+          historyIndexRef.current--;
+        }
+
+        const histCmd = history[historyIndexRef.current];
+        clearInputLine(xterm);
+        currentCommandRef.current = histCmd;
+        setCurrentCommand(histCmd);
+        xterm.write(histCmd);
+      } else if (data === '\x1b[B') {
+        // Down arrow: navigate forward through history
+        const history = commandHistoryRef.current;
+        if (historyIndexRef.current === -1) return;
+
+        if (historyIndexRef.current < history.length - 1) {
+          historyIndexRef.current++;
+          const histCmd = history[historyIndexRef.current];
+          clearInputLine(xterm);
+          currentCommandRef.current = histCmd;
+          setCurrentCommand(histCmd);
+          xterm.write(histCmd);
+        } else {
+          // Past the end of history: clear input
+          historyIndexRef.current = -1;
+          clearInputLine(xterm);
+          currentCommandRef.current = '';
+          setCurrentCommand('');
+        }
       } else if (data >= ' ' && data <= '~') {
         currentCommandRef.current += data;
         setCurrentCommand(currentCommandRef.current);

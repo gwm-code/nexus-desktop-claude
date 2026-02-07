@@ -6,7 +6,7 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   NexusStatus, SwarmTask, ChatMessage, Agent,
   MemoryStats, WatcherStatus, UserSettings,
-  ConnectionStatus
+  ConnectionStatus, Toast
 } from '../types';
 
 interface NexusState {
@@ -47,8 +47,13 @@ interface NexusState {
   
   // Settings
   settings: UserSettings;
-  
+
+  // Toasts
+  toasts: Toast[];
+
   // Actions
+  addToast: (toast: Omit<Toast, 'id'>) => void;
+  removeToast: (id: string) => void;
   setBackendStatus: (status: ConnectionStatus, error?: string | null) => void;
   setNexusStatus: (status: NexusStatus) => void;
   setCurrentProject: (path: string | null) => void;
@@ -67,7 +72,21 @@ interface NexusState {
   updateSetting: <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => void;
   resetSettings: () => void;
   
-  // Business Logic Methods (Stubs used by UI)
+  // Provider/Model State
+  availableProviders: string[];
+  availableModels: string[];
+  activeProvider: string;
+  activeModel: string;
+
+  // Provider/Model Actions
+  setProvider: (provider: string) => Promise<void>;
+  setModel: (model: string) => Promise<void>;
+  setApiKey: (provider: string, key: string) => Promise<void>;
+  loadAvailableModels: (provider: string) => Promise<void>;
+  testProviderConnection: (provider: string) => Promise<string>;
+  loadProviders: () => Promise<void>;
+
+  // Business Logic Methods
   initializeTauriListeners: () => void;
   loadChatHistory: () => Promise<void>;
   loadSwarmTasks: () => Promise<void>;
@@ -140,6 +159,22 @@ export const useNexusStore = create<NexusState>()(
       watcherStatus: null,
       terminalHistory: [],
       settings: defaultSettings,
+      toasts: [],
+
+      // Provider/Model State
+      availableProviders: [],
+      availableModels: [],
+      activeProvider: '',
+      activeModel: '',
+
+      // Toast Actions
+      addToast: (toast) => {
+        const id = crypto.randomUUID();
+        set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }));
+      },
+      removeToast: (id) => {
+        set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+      },
 
       // Setters
       setBackendStatus: (status, error = null) => 
@@ -390,6 +425,77 @@ export const useNexusStore = create<NexusState>()(
             },
           };
         });
+      },
+
+      // Provider/Model Actions
+      setProvider: async (provider: string) => {
+        try {
+          await invoke('set_provider', { provider });
+          set({ activeProvider: provider });
+          await get().loadAvailableModels(provider);
+        } catch (e) {
+          console.error('Failed to set provider:', e);
+          get().addToast({ type: 'error', title: 'Failed to set provider', message: String(e) });
+        }
+      },
+
+      setModel: async (model: string) => {
+        try {
+          await invoke('set_model', { model });
+          set({ activeModel: model });
+        } catch (e) {
+          console.error('Failed to set model:', e);
+          get().addToast({ type: 'error', title: 'Failed to set model', message: String(e) });
+        }
+      },
+
+      setApiKey: async (provider: string, key: string) => {
+        try {
+          await invoke('set_api_key', { provider, key });
+          get().addToast({ type: 'success', title: 'API key saved', message: `Key stored for ${provider}` });
+        } catch (e) {
+          console.error('Failed to set API key:', e);
+          get().addToast({ type: 'error', title: 'Failed to save API key', message: String(e) });
+        }
+      },
+
+      loadAvailableModels: async (provider: string) => {
+        try {
+          const models: string[] = await invoke('list_models', { provider });
+          set({ availableModels: models });
+        } catch (e) {
+          console.error('Failed to load models:', e);
+          set({ availableModels: [] });
+        }
+      },
+
+      testProviderConnection: async (provider: string) => {
+        try {
+          const result: string = await invoke('test_provider_connection', { provider });
+          get().addToast({ type: 'success', title: 'Connection OK', message: result });
+          return result;
+        } catch (e) {
+          const errMsg = String(e);
+          get().addToast({ type: 'error', title: 'Connection failed', message: errMsg });
+          throw e;
+        }
+      },
+
+      loadProviders: async () => {
+        try {
+          const raw: string = await invoke('get_config');
+          const json = JSON.parse(raw);
+          if (json.success && json.data) {
+            const d = json.data;
+            if (d.providers && Array.isArray(d.providers)) {
+              set({ availableProviders: d.providers.map((p: any) => p.name || p) });
+            }
+            if (d.active_provider) set({ activeProvider: d.active_provider });
+            if (d.active_model) set({ activeModel: d.active_model });
+          }
+        } catch (e) {
+          console.error('Failed to load providers:', e);
+        }
       },
 
       scanCurrentProject: async (path?: string) => {
