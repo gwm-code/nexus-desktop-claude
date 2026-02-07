@@ -371,7 +371,13 @@ export const useNexusStore = create<NexusState>()(
 
       checkNexusStatus: async () => {
         try {
-          set((state) => ({ backend: { ...state.backend, status: 'connecting' } }));
+          // Only show "connecting" if we're not already connected (prevents flickering on polling)
+          set((state) => ({
+            backend: {
+              ...state.backend,
+              status: state.backend.status === 'connected' ? 'connected' : 'connecting'
+            }
+          }));
           const status: NexusStatus = await invoke('get_nexus_status');
           set({
             nexusStatus: status,
