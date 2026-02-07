@@ -786,39 +786,44 @@ async fn set_oauth_credentials(
 async fn oauth_authorize(
     provider: String,
     state: State<'_, NexusState>,
-    app: tauri::AppHandle
+    _app: tauri::AppHandle
 ) -> Result<String, String> {
     eprintln!("[Tauri] Starting OAuth authorization for provider: {}", provider);
 
-    let raw = execute_nexus_bridge(&["--json", "oauth", "authorize", &provider], &state).await?;
-    eprintln!("[Tauri] OAuth CLI response: {}", raw);
+    // Step 1: Get OAuth URL (non-blocking)
+    let raw = execute_nexus_bridge(&["--json", "oauth", "get-url", &provider], &state).await?;
+    eprintln!("[Tauri] OAuth get-url response: {}", raw);
 
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
+    let auth_url = if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
         if json["success"].as_bool() == Some(true) {
-            // Extract auth URL from response
-            if let Some(auth_url) = json["data"]["auth_url"].as_str() {
-                eprintln!("[Tauri] Opening browser with URL: {}", auth_url);
-
-                // Open browser locally
-                if let Err(e) = open::that(auth_url) {
-                    eprintln!("[Tauri] Failed to open browser: {:?}", e);
-                    return Err(format!("Failed to open browser: {}", e));
-                }
-
-                eprintln!("[Tauri] Browser opened successfully");
-                return Ok("Browser opened for OAuth authorization".to_string());
+            if let Some(url) = json["data"]["auth_url"].as_str() {
+                url.to_string()
             } else {
-                eprintln!("[Tauri] No auth_url in response");
+                return Err("No auth_url in response".to_string());
             }
-            return Ok("OAuth authorization started".to_string());
         } else {
-            let error = json["error"].as_str().unwrap_or("OAuth authorization failed").to_string();
-            eprintln!("[Tauri] OAuth error: {}", error);
+            let error = json["error"].as_str().unwrap_or("Failed to get OAuth URL").to_string();
             return Err(error);
         }
+    } else {
+        return Err("Failed to parse OAuth response".to_string());
+    };
+
+    eprintln!("[Tauri] Opening browser with URL: {}", auth_url);
+
+    // Step 2: Open browser locally
+    if let Err(e) = open::that(&auth_url) {
+        eprintln!("[Tauri] Failed to open browser: {:?}", e);
+        return Err(format!("Failed to open browser: {}. Please ensure SSH port forwarding is active: ssh -L 8765:localhost:8765", e));
     }
 
-    Err("Failed to parse OAuth response".to_string())
+    eprintln!("[Tauri] Browser opened successfully");
+
+    // Step 3: Start callback server in background (don't wait for result)
+    let raw_wait = execute_nexus_bridge(&["--json", "oauth", "wait-callback", &provider], &state).await;
+    eprintln!("[Tauri] Wait-callback result: {:?}", raw_wait);
+
+    Ok("Browser opened - complete login in browser and check status".to_string())
 }
 
 #[tauri::command]
