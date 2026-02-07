@@ -285,3 +285,10 @@ nexus oauth status google
 7. ⏳ Build AppImage and distribute
 
 **Current status:** CLI is ready, Desktop needs Client ID updates + minor UI tweaks.
+
+
+## ✅ OAuth Working!
+
+Google OAuth successfully tested and working. Credentials are stored in config (~/.config/nexus/config.toml), not hardcoded in source.
+
+
