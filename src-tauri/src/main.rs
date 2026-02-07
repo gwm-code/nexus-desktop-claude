@@ -787,13 +787,11 @@ async fn oauth_authorize(
     provider: String,
     state: State<'_, NexusState>
 ) -> Result<String, String> {
-    let raw = execute_nexus_bridge(&["--json", "config", "oauth-authorize", &provider], &state).await?;
+    let raw = execute_nexus_bridge(&["--json", "oauth", "authorize", &provider], &state).await?;
 
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
         if json["success"].as_bool() == Some(true) {
-            if let Some(auth_url) = json["data"]["auth_url"].as_str() {
-                return Ok(auth_url.to_string());
-            }
+            return Ok("OAuth authorization completed successfully".to_string());
         } else {
             return Err(json["error"].as_str().unwrap_or("OAuth authorization failed").to_string());
         }
@@ -807,7 +805,7 @@ async fn oauth_check_status(
     provider: String,
     state: State<'_, NexusState>
 ) -> Result<OAuthStatus, String> {
-    let raw = execute_nexus_bridge(&["--json", "config", "oauth-status", &provider], &state).await?;
+    let raw = execute_nexus_bridge(&["--json", "oauth", "status", &provider], &state).await?;
 
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&raw) {
         if json["success"].as_bool() == Some(true) {
