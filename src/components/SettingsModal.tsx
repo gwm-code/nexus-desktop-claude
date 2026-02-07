@@ -380,14 +380,23 @@ const ProviderTab: React.FC = () => {
 
             {oauthStatus?.authorized ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 text-xs text-green-400">
-                  <Check className="w-4 h-4" />
-                  <span>Authorized</span>
-                  {oauthStatus.expiresAt && (
-                    <span className="text-zinc-500">
-                      • Expires: {new Date(oauthStatus.expiresAt).toLocaleDateString()}
-                    </span>
-                  )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-green-400">
+                    <Check className="w-4 h-4" />
+                    <span>Authorized</span>
+                    {oauthStatus.expiresAt && (
+                      <span className="text-zinc-500">
+                        • Expires: {new Date(oauthStatus.expiresAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleOAuthAuthorize}
+                    disabled={authorizingOAuth}
+                    className="px-3 py-1 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 text-[10px] font-medium rounded transition-colors"
+                  >
+                    Re-authenticate
+                  </button>
                 </div>
                 <p className="text-[10px] text-zinc-400">
                   You're authenticated and ready to use {
